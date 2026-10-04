@@ -1,0 +1,83 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// A registered student. Demo-seeded rows carry isDemo = true so the
+// "Reset Demo" action can restore the pristine simulated campaign
+// without touching registrations created through the live UI.
+model Student {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  college      String
+  branch       String
+  year         String
+  referralCode String   @unique
+  referredById String?
+  channel      String
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  referredBy  Student?        @relation("ReferralChain", fields: [referredById], references: [id], onDelete: SetNull)
+  referrals   Student[]       @relation("ReferralChain")
+  referralsMade    Referral[] @relation("Referrer")
+  referralsReceived Referral[] @relation("ReferredStudent")
+  events      CampaignEvent[]
+
+  @@index([college])
+  @@index([channel])
+  @@index([isDemo])
+}
+
+// Completed referral attribution: a friend clicked a referral link and
+// finished registration under that code.
+model Referral {
+  id                String   @id @default(cuid())
+  referrerId        String
+  referredStudentId String   @unique
+  referralCode      String
+  status            String   @default("registered") // registered
+  createdAt         DateTime @default(now())
+
+  referrer        Student @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredStudent Student @relation("ReferredStudent", fields: [referredStudentId], references: [id], onDelete: Cascade)
+
+  @@index([referrerId])
+  @@index([createdAt])
+}
+
+// The 7-day simulated campaign definition.
+model Campaign {
+  id                  String   @id @default(cuid())
+  name                String
+  targetRegistrations Int
+  budget              Int
+  durationDays        Int
+  startDate           DateTime
+  endDate             DateTime
+  // Demo snapshot marker: which campaign day the seeded data represents.
+  currentDay          Int      @default(5)
+}
+
+// Funnel + engagement telemetry (visits, starts, registers, shares,
+// referral clicks). Lightweight rows so every aggregate on the
+// dashboard is computed from one source of truth.
+model CampaignEvent {
+  id        String   @id @default(cuid())
+  type      String // visit | start | register | share | referral_click
+  studentId String?
+  channel   String?
+  metadata  String? // JSON string: { college?, code?, referrerId? }
+  timestamp DateTime @default(now())
+
+  student Student? @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([type])
+  @@index([timestamp])
+  @@index([channel])
+}
